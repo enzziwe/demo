@@ -1,0 +1,257 @@
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Windows;
+using System.Windows.Data;
+
+namespace LibraryTemplate
+{
+    public partial class MainWindow : Window
+    {
+        // Коллекция книг
+        public ObservableCollection<Book> Books { get; set; }
+        
+        // Представление для сортировки и фильтрации
+        public ICollectionView BooksView { get; set; }
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            // Инициализация данных
+            InitializeBooks();
+            
+            // Установка контекста данных
+            this.DataContext = this;
+        }
+
+        /// <summary>
+        /// Инициализация списка книг
+        /// </summary>
+        private void InitializeBooks()
+        {
+            Books = new ObservableCollection<Book>
+            {
+                new Book { Title = "Война и мир", Author = "Лев Толстой", Year = 1869, Genre = "Роман", IsAvailable = true },
+                new Book { Title = "Преступление и наказание", Author = "Фёдор Достоевский", Year = 1866, Genre = "Роман", IsAvailable = false },
+                new Book { Title = "Мастер и Маргарита", Author = "Михаил Булгаков", Year = 1967, Genre = "Роман", IsAvailable = true },
+                new Book { Title = "1984", Author = "Джордж Оруэлл", Year = 1949, Genre = "Антиутопия", IsAvailable = true },
+                new Book { Title = "Гарри Поттер и философский камень", Author = "Дж. К. Роулинг", Year = 1997, Genre = "Фэнтези", IsAvailable = false }
+            };
+
+            // Создаем представление для сортировки и фильтрации
+            BooksView = CollectionViewSource.GetDefaultView(Books);
+            
+            // Начальная сортировка по названию
+            BooksView.SortDescriptions.Add(new SortDescription("Title", ListSortDirection.Ascending));
+            
+            // Устанавливаем фильтр
+            BooksView.Filter = FilterBooks;
+        }
+
+        /// <summary>
+        /// Метод фильтрации книг
+        /// </summary>
+        private bool FilterBooks(object obj)
+        {
+            if (obj is Book book)
+            {
+                // Фильтр по жанру
+                bool genreFilter = string.IsNullOrEmpty(genreComboBox.SelectedItem as string) || 
+                                 book.Genre == genreComboBox.SelectedItem.ToString();
+                
+                // Фильтр по автору (поиск)
+                bool authorFilter = string.IsNullOrEmpty(authorSearchBox.Text) || 
+                                  book.Author.IndexOf(authorSearchBox.Text, StringComparison.OrdinalIgnoreCase) >= 0;
+                
+                // Фильтр по доступности
+                bool availabilityFilter = !availableOnlyCheckBox.IsChecked.HasValue || !availableOnlyCheckBox.IsChecked.Value || 
+                                        book.IsAvailable;
+                
+                return genreFilter && authorFilter && availabilityFilter;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Обработчик изменения фильтров
+        /// </summary>
+        private void FilterChanged(object sender, RoutedEventArgs e)
+        {
+            BooksView.Refresh();
+        }
+
+        /// <summary>
+        /// Обработчик сортировки
+        /// </summary>
+        private void SortColumn_Click(object sender, RoutedEventArgs e)
+        {
+            var column = sender as System.Windows.Controls.DataGridColumn;
+            if (column == null) return;
+
+            string sortBy = column.SortMemberPath;
+            
+            ListSortDirection direction = ListSortDirection.Ascending;
+            
+            if (BooksView.SortDescriptions.Count > 0 && 
+                BooksView.SortDescriptions[0].PropertyName == sortBy)
+            {
+                direction = BooksView.SortDescriptions[0].Direction == ListSortDirection.Ascending ? 
+                           ListSortDirection.Descending : ListSortDirection.Ascending;
+            }
+            
+            BooksView.SortDescriptions.Clear();
+            BooksView.SortDescriptions.Add(new SortDescription(sortBy, direction));
+        }
+    }
+
+    /// <summary>
+    /// Класс книги
+    /// </summary>
+    public class Book
+    {
+        public string Title { get; set; }
+        public string Author { get; set; }
+        public int Year { get; set; }
+        public string Genre { get; set; }
+        public bool IsAvailable { get; set; }
+    }
+}
+
+
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+
+namespace ECommerceTemplate
+{
+    /// <summary>
+    /// Главное окно приложения для интернет-магазина
+    /// </summary>
+    public partial class MainWindow : Window
+    {
+        // Коллекция товаров
+        public ObservableCollection<Product> Products { get; set; }
+        
+        // Коллекция для отображения с учетом фильтров
+        public ICollectionView ProductsView { get; set; }
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            // Инициализация данных
+            InitializeProducts();
+            
+            // Установка контекста данных
+            this.DataContext = this;
+        }
+
+        /// <summary>
+        /// Инициализация списка товаров
+        /// </summary>
+        private void InitializeProducts()
+        {
+            // Создаем тестовые данные
+            Products = new ObservableCollection<Product>
+            {
+                new Product { Id = 1, Name = "Ноутбук", Category = "Электроника", Price = 50000, StockQuantity = 10 },
+                new Product { Id = 2, Name = "Смартфон", Category = "Электроника", Price = 30000, StockQuantity = 15 },
+                new Product { Id = 3, Name = "Наушники", Category = "Электроника", Price = 5000, StockQuantity = 20 },
+                new Product { Id = 4, Name = "Футболка", Category = "Одежда", Price = 1500, StockQuantity = 30 },
+                new Product { Id = 5, Name = "Джинсы", Category = "Одежда", Price = 3000, StockQuantity = 25 },
+                new Product { Id = 6, Name = "Книга", Category = "Книги", Price = 500, StockQuantity = 50 }
+            };
+
+            // Создаем представление для сортировки и фильтрации
+            ProductsView = CollectionViewSource.GetDefaultView(Products);
+            
+            // Включаем возможность сортировки
+            ProductsView.SortDescriptions.Add(new SortDescription("Name", ListSortDirection.Ascending));
+            
+            // Включаем возможность фильтрации
+            ProductsView.Filter = FilterProducts;
+        }
+
+        /// <summary>
+        /// Метод фильтрации товаров
+        /// </summary>
+        private bool FilterProducts(object obj)
+        {
+            if (obj is Product product)
+            {
+                // Если не выбран фильтр по категории или категория совпадает
+                bool categoryFilter = string.IsNullOrEmpty(categoryFilterComboBox.SelectedItem as string) || 
+                                    product.Category == categoryFilterComboBox.SelectedItem.ToString();
+                
+                // Фильтр по названию (поиск)
+                bool nameFilter = string.IsNullOrEmpty(searchTextBox.Text) || 
+                                  product.Name.IndexOf(searchTextBox.Text, StringComparison.OrdinalIgnoreCase) >= 0;
+                
+                // Фильтр по наличию на складе
+                bool inStockFilter = !inStockCheckBox.IsChecked.HasValue || !inStockCheckBox.IsChecked.Value || 
+                                    product.StockQuantity > 0;
+                
+                return categoryFilter && nameFilter && inStockFilter;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Обработчик изменения фильтров
+        /// </summary>
+        private void FilterChanged(object sender, RoutedEventArgs e)
+        {
+            // Обновляем представление при изменении фильтров
+            ProductsView.Refresh();
+        }
+
+        /// <summary>
+        /// Обработчик сортировки при нажатии на заголовок колонки
+        /// </summary>
+        private void SortColumn_Click(object sender, RoutedEventArgs e)
+        {
+            var columnHeader = sender as GridViewColumnHeader;
+            if (columnHeader == null) return;
+
+            // Получаем имя свойства для сортировки из Tag
+            string sortBy = columnHeader.Tag.ToString();
+            
+            // Определяем направление сортировки
+            ListSortDirection direction = ListSortDirection.Ascending;
+            
+            // Если уже сортировано по этому полю, меняем направление
+            if (ProductsView.SortDescriptions.Count > 0 && 
+                ProductsView.SortDescriptions[0].PropertyName == sortBy)
+            {
+                direction = ProductsView.SortDescriptions[0].Direction == ListSortDirection.Ascending ? 
+                           ListSortDirection.Descending : ListSortDirection.Ascending;
+            }
+            
+            // Очищаем предыдущие сортировки
+            ProductsView.SortDescriptions.Clear();
+            
+            // Добавляем новую сортировку
+            ProductsView.SortDescriptions.Add(new SortDescription(sortBy, direction));
+        }
+    }
+
+    /// <summary>
+    /// Класс товара
+    /// </summary>
+    public class Product
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Category { get; set; }
+        public decimal Price { get; set; }
+        public int StockQuantity { get; set; }
+    }
+}

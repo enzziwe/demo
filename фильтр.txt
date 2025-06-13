@@ -1,0 +1,123 @@
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Windows;
+using System.Windows.Data;
+
+namespace EmployeeManagementTemplate
+{
+    public partial class MainWindow : Window
+    {
+        // Коллекция сотрудников
+        public ObservableCollection<Employee> Employees { get; set; }
+        
+        // Представление для сортировки и фильтрации
+        public ICollectionView EmployeesView { get; set; }
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            // Инициализация данных
+            InitializeEmployees();
+            
+            // Установка контекста данных
+            this.DataContext = this;
+        }
+
+        /// <summary>
+        /// Инициализация списка сотрудников
+        /// </summary>
+        private void InitializeEmployees()
+        {
+            Employees = new ObservableCollection<Employee>
+            {
+                new Employee { Id = 1, Name = "Иванов Иван", Department = "IT", Position = "Разработчик", HireDate = new DateTime(2020, 1, 15), Salary = 100000 },
+                new Employee { Id = 2, Name = "Петров Петр", Department = "HR", Position = "Менеджер", HireDate = new DateTime(2019, 5, 10), Salary = 80000 },
+                new Employee { Id = 3, Name = "Сидорова Анна", Department = "IT", Position = "Тестировщик", HireDate = new DateTime(2021, 3, 20), Salary = 70000 },
+                new Employee { Id = 4, Name = "Смирнов Алексей", Department = "Финансы", Position = "Бухгалтер", HireDate = new DateTime(2018, 11, 5), Salary = 90000 }
+            };
+
+            // Создаем представление для сортировки и фильтрации
+            EmployeesView = CollectionViewSource.GetDefaultView(Employees);
+            
+            // Начальная сортировка по имени
+            EmployeesView.SortDescriptions.Add(new SortDescription("Name", ListSortDirection.Ascending));
+            
+            // Устанавливаем фильтр
+            EmployeesView.Filter = FilterEmployees;
+        }
+
+        /// <summary>
+        /// Метод фильтрации сотрудников
+        /// </summary>
+        private bool FilterEmployees(object obj)
+        {
+            if (obj is Employee employee)
+            {
+                // Фильтр по отделу
+                bool departmentFilter = string.IsNullOrEmpty(departmentComboBox.SelectedItem as string) || 
+                                      employee.Department == departmentComboBox.SelectedItem.ToString();
+                
+                // Фильтр по должности
+                bool positionFilter = string.IsNullOrEmpty(positionSearchBox.Text) || 
+                                    employee.Position.IndexOf(positionSearchBox.Text, StringComparison.OrdinalIgnoreCase) >= 0;
+                
+                // Фильтр по зарплате
+                bool salaryFilter = true;
+                if (minSalarySlider.Value > 0)
+                    salaryFilter = employee.Salary >= minSalarySlider.Value;
+                if (maxSalarySlider.Value > 0 && maxSalarySlider.Value >= minSalarySlider.Value)
+                    salaryFilter = salaryFilter && (employee.Salary <= maxSalarySlider.Value);
+                
+                return departmentFilter && positionFilter && salaryFilter;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Обработчик изменения фильтров
+        /// </summary>
+        private void FilterChanged(object sender, RoutedEventArgs e)
+        {
+            EmployeesView.Refresh();
+        }
+
+        /// <summary>
+        /// Обработчик сортировки
+        /// </summary>
+        private void SortColumn_Click(object sender, RoutedEventArgs e)
+        {
+            var columnHeader = sender as System.Windows.Controls.Primitives.DataGridColumnHeader;
+            if (columnHeader == null) return;
+
+            string sortBy = columnHeader.Column.SortMemberPath;
+            
+            ListSortDirection direction = ListSortDirection.Ascending;
+            
+            if (EmployeesView.SortDescriptions.Count > 0 && 
+                EmployeesView.SortDescriptions[0].PropertyName == sortBy)
+            {
+                direction = EmployeesView.SortDescriptions[0].Direction == ListSortDirection.Ascending ? 
+                           ListSortDirection.Descending : ListSortDirection.Ascending;
+            }
+            
+            EmployeesView.SortDescriptions.Clear();
+            EmployeesView.SortDescriptions.Add(new SortDescription(sortBy, direction));
+        }
+    }
+
+    /// <summary>
+    /// Класс сотрудника
+    /// </summary>
+    public class Employee
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Department { get; set; }
+        public string Position { get; set; }
+        public DateTime HireDate { get; set; }
+        public decimal Salary { get; set; }
+    }
+}
