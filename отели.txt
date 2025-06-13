@@ -1,0 +1,395 @@
+// ==== User.cs (Модель пользователя) ====
+using System;
+
+namespace WpfApp1.Data
+{
+    // Класс, представляющий пользователя из БД
+    public class User
+    {
+        public int Id { get; set; }                         // Уникальный идентификатор пользователя
+        public string Login { get; set; }                   // Логин пользователя
+        public string PasswordHash { get; set; }            // Хэш пароля
+        public string Role { get; set; }                    // Роль пользователя (Администратор / Пользователь)
+        public bool IsBlocked { get; set; }                 // Флаг блокировки
+        public int FailedAttempts { get; set; }             // Кол-во неудачных попыток входа
+        public DateTime? LastLoginDate { get; set; }        // Дата последней авторизации
+        public bool FirstLogin { get; set; }                // Флаг первого входа
+    }
+}
+
+// ==== AppDbContext.cs (Контекст EF Core) ====
+using Microsoft.EntityFrameworkCore;
+
+namespace WpfApp1.Data
+{
+    public class AppDbContext : DbContext
+    {
+        public DbSet<User> Users { get; set; } // Коллекция пользователей
+
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        {
+            // Настройка строки подключения к базе данных SQL Server
+            optionsBuilder.UseSqlServer("Server=localhost;Database=HotelManagementSystem;Trusted_Connection=True;");
+        }
+    }
+}
+
+// ==== AuthService.cs (Сервис авторизации и смены пароля) ====
+using System;
+using System.Linq;
+using WpfApp1.Data;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace WpfApp1.Services
+{
+    public class AuthService
+    {
+        // Метод авторизации пользователя
+        public static User Authenticate(string login, string password)
+        {
+            using (var db = new AppDbContext())
+            {
+                var user = db.Users.SingleOrDefault(u => u.Login == login);
+
+                if (user == null || user.IsBlocked)
+                    return null;
+
+                if (user.PasswordHash != ComputeHash(password))
+                {
+                    user.FailedAttempts++;
+                    if (user.FailedAttempts >= 3)
+                        user.IsBlocked = true;
+
+                    db.SaveChanges();
+                    return null;
+                }
+
+                if (user.LastLoginDate.HasValue && user.LastLoginDate.Value.AddMonths(1) < DateTime.Now)
+                {
+                    user.IsBlocked = true;
+                    db.SaveChanges();
+                    return null;
+                }
+
+                user.FailedAttempts = 0;
+                user.LastLoginDate = DateTime.Now;
+                db.SaveChanges();
+
+                return user;
+            }
+        }
+
+        // Хэширование строки (пароля)
+        public static string ComputeHash(string input)
+        {
+            using var sha = SHA256.Create();
+            byte[] bytes = Encoding.UTF8.GetBytes(input);
+            byte[] hash = sha.ComputeHash(bytes);
+            return Convert.ToBase64String(hash);
+        }
+
+        // Смена пароля для пользователя
+        public static bool ChangePassword(User user, string currentPassword, string newPassword)
+        {
+            if (user.PasswordHash != ComputeHash(currentPassword))
+                return false;
+
+            using (var db = new AppDbContext())
+            {
+                var u = db.Users.Find(user.Id);
+                u.PasswordHash = ComputeHash(newPassword);
+                u.FirstLogin = false;
+                db.SaveChanges();
+            }
+            return true;
+        }
+
+        // Добавление нового пользователя (если логин уникален)
+        public static bool AddUser(string login, string password, string role)
+        {
+            using var db = new AppDbContext();
+
+            if (db.Users.Any(u => u.Login == login))
+                return false;
+
+            db.Users.Add(new User
+            {
+                Login = login,
+                PasswordHash = ComputeHash(password),
+                Role = role,
+                FirstLogin = true,
+                FailedAttempts = 0,
+                IsBlocked = false
+            });
+
+            db.SaveChanges();
+            return true;
+        }
+
+        // Снятие блокировки
+        public static void UnblockUser(int userId)
+        {
+            using var db = new AppDbContext();
+            var user = db.Users.Find(userId);
+            if (user != null)
+            {
+                user.IsBlocked = false;
+                user.FailedAttempts = 0;
+                db.SaveChanges();
+            }
+        }
+    }
+}
+
+// ==== MainWindow.xaml.cs (главное окно с фреймом) ====
+using System.Windows;
+using WpfApp1.Pages;
+
+namespace WpfApp1
+{
+    public partial class MainWindow : Window
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+            MainFrame.Navigate(new AuthorizationPage()); // Переход на страницу авторизации
+        }
+    }
+}
+
+// ==== AuthorizationPage.xaml.cs (авторизация) ====
+using System.Windows;
+using System.Windows.Controls;
+using WpfApp1.Services;
+using WpfApp1.Data;
+
+namespace WpfApp1.Pages
+{
+    public partial class AuthorizationPage : Page
+    {
+        public AuthorizationPage()
+        {
+            InitializeComponent();
+        }
+
+        // Обработка нажатия кнопки Войти
+        private void Login_Click(object sender, RoutedEventArgs e)
+        {
+            var login = LoginBox.Text;
+            var password = PasswordBox.Password;
+
+            if (string.IsNullOrWhiteSpace(login) || string.IsNullOrWhiteSpace(password))
+            {
+                ErrorText.Text = "Поля обязательны для заполнения.";
+                return;
+            }
+
+            var user = AuthService.Authenticate(login, password);
+
+            if (user == null)
+            {
+                ErrorText.Text = "Вы ввели неверный логин или пароль. Пожалуйста проверьте ещё раз введенные данные.";
+                return;
+            }
+
+            MessageBox.Show("Вы успешно авторизовались");
+
+            if (user.FirstLogin)
+            {
+                NavigationService.Navigate(new ChangePasswordPage(user));
+                return;
+            }
+
+            if (user.Role == "Администратор")
+                NavigationService.Navigate(new AdminDashboardPage());
+            else
+                NavigationService.Navigate(new UserDashboardPage());
+        }
+    }
+}
+
+
+// ==== ChangePasswordPage.xaml.cs ====
+using System.Windows;
+using System.Windows.Controls;
+using WpfApp1.Data;
+using WpfApp1.Services;
+
+namespace WpfApp1.Pages
+{
+    public partial class ChangePasswordPage : Page
+    {
+        private User _user;
+
+        public ChangePasswordPage(User user)
+        {
+            InitializeComponent();
+            _user = user; // Сохраняем авторизованного пользователя
+        }
+
+        private void ChangePassword_Click(object sender, RoutedEventArgs e)
+        {
+            var current = CurrentPasswordBox.Password;
+            var newPass = NewPasswordBox.Password;
+            var confirm = ConfirmPasswordBox.Password;
+
+            // Проверка обязательных полей
+            if (string.IsNullOrWhiteSpace(current) || string.IsNullOrWhiteSpace(newPass) || string.IsNullOrWhiteSpace(confirm))
+            {
+                ErrorText.Text = "Все поля обязательны для заполнения.";
+                return;
+            }
+
+            // Проверка совпадения нового пароля
+            if (newPass != confirm)
+            {
+                ErrorText.Text = "Новый пароль и подтверждение не совпадают.";
+                return;
+            }
+
+            // Попытка сменить пароль
+            if (!AuthService.ChangePassword(_user, current, newPass))
+            {
+                ErrorText.Text = "Текущий пароль введен неверно.";
+                return;
+            }
+
+            MessageBox.Show("Пароль успешно изменён");
+
+            // Перенаправление по роли
+            if (_user.Role == "Администратор")
+                NavigationService.Navigate(new AdminDashboardPage());
+            else
+                NavigationService.Navigate(new UserDashboardPage());
+        }
+    }
+}
+
+// ==== ChangePasswordPage.xaml ====
+<Page x:Class="WpfApp1.Pages.ChangePasswordPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="clr-namespace:WpfApp1.Pages"
+      Title="ChangePasswordPage">
+
+    <Grid Width="800" Height="450" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="300">
+            <TextBlock Text="Смена пароля" FontSize="20" FontWeight="Bold" Margin="0,0,0,20" HorizontalAlignment="Center"/>
+
+            <PasswordBox x:Name="CurrentPasswordBox" PlaceholderText="Текущий пароль" Margin="0,5"/>
+            <PasswordBox x:Name="NewPasswordBox" PlaceholderText="Новый пароль" Margin="0,5"/>
+            <PasswordBox x:Name="ConfirmPasswordBox" PlaceholderText="Подтвердите пароль" Margin="0,5"/>
+
+            <TextBlock x:Name="ErrorText" Foreground="Red" Margin="0,5"/>
+
+            <Button Content="Изменить пароль" Click="ChangePassword_Click" Margin="0,10"/>
+        </StackPanel>
+    </Grid>
+</Page>
+
+// ==== AdminDashboardPage.xaml.cs ====
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using WpfApp1.Services;
+using WpfApp1.Data;
+
+namespace WpfApp1.Pages
+{
+    public partial class AdminDashboardPage : Page
+    {
+        public AdminDashboardPage()
+        {
+            InitializeComponent();
+            RefreshUserList();
+        }
+
+        private void RefreshUserList()
+        {
+            using var db = new AppDbContext();
+            UsersList.ItemsSource = db.Users.ToList();
+        }
+
+        private void AddUser_Click(object sender, RoutedEventArgs e)
+        {
+            var login = NewLoginBox.Text;
+            var password = NewPasswordBox.Password;
+            var role = RoleBox.Text;
+
+            if (string.IsNullOrWhiteSpace(login) || string.IsNullOrWhiteSpace(password) || string.IsNullOrWhiteSpace(role))
+            {
+                ErrorText.Text = "Все поля обязательны";
+                return;
+            }
+
+            if (!AuthService.AddUser(login, password, role))
+            {
+                ErrorText.Text = "Пользователь с таким логином уже существует.";
+                return;
+            }
+
+            RefreshUserList();
+            MessageBox.Show("Пользователь добавлен");
+        }
+
+        private void UnblockUser_Click(object sender, RoutedEventArgs e)
+        {
+            if (UsersList.SelectedItem is User user)
+            {
+                AuthService.UnblockUser(user.Id);
+                RefreshUserList();
+            }
+        }
+    }
+}
+
+// ==== AdminDashboardPage.xaml ====
+<Page x:Class="WpfApp1.Pages.AdminDashboardPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="AdminDashboardPage">
+
+    <Grid Width="800" Height="450" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <TextBlock Text="Панель администратора" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+
+            <StackPanel Orientation="Horizontal">
+                <TextBox x:Name="NewLoginBox" PlaceholderText="Логин" Width="100" Margin="5"/>
+                <PasswordBox x:Name="NewPasswordBox" Width="100" Margin="5"/>
+                <TextBox x:Name="RoleBox" PlaceholderText="Роль" Width="100" Margin="5"/>
+                <Button Content="Добавить" Click="AddUser_Click" Margin="5"/>
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Foreground="Red" Margin="5"/>
+
+            <ListBox x:Name="UsersList" Height="200" DisplayMemberPath="Login" Margin="5"/>
+            <Button Content="Снять блокировку" Click="UnblockUser_Click" Margin="5"/>
+        </StackPanel>
+    </Grid>
+</Page>
+
+// ==== UserDashboardPage.xaml.cs ====
+using System.Windows.Controls;
+
+namespace WpfApp1.Pages
+{
+    public partial class UserDashboardPage : Page
+    {
+        public UserDashboardPage()
+        {
+            InitializeComponent();
+        }
+    }
+}
+
+// ==== UserDashboardPage.xaml ====
+<Page x:Class="WpfApp1.Pages.UserDashboardPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Title="UserDashboardPage">
+
+    <Grid Width="800" Height="450" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="Добро пожаловать, пользователь" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="24"/>
+    </Grid>
+</Page>
